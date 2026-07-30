@@ -213,24 +213,32 @@ public class PluginEntry implements Runnable {
                             @SuppressWarnings("unchecked")
                             public void afterHookedMember(Object param) throws Throwable {
                                 try {
-                                    List menuList = (List) callMethod(param, "getResult");
-                                    if (menuList == null) return;
+                                    Object result = callMethod(param, "getResult");
+                                    if (result == null) {
+                                        showToastOnMain("小番茄: getResult 返回 null!");
+                                        return;
+                                    }
+                                    List menuList = (List) result;
 
                                     Object msg = fGetMsgMethod.invoke(component);
-                                    if (msg == null) return;
+                                    if (msg == null) {
+                                        showToastOnMain("小番茄: getMsg 返回 null!");
+                                        return;
+                                    }
 
+                                    showToastOnMain("小番茄: 创建菜单项...");
                                     Object menuItem = createCustomMenuItem(msg);
                                     if (menuItem != null) {
                                         menuList.add(menuItem);
-                                        showToastOnMain("小番茄: 菜单项已注入!");
+                                        showToastOnMain("小番茄: 已注入! size=" + menuList.size());
                                         log("已注入「小番茄解混淆」菜单项");
                                     } else {
                                         showToastOnMain("小番茄: createCustomMenuItem 返回 null");
                                     }
                                 } catch (Throwable t) {
                                     logError("注入菜单项失败", t);
-                                    showToastOnMain("小番茄: 注入失败 - " + t.getClass().getSimpleName()
-                                            + ": " + truncate(t.getMessage(), 50));
+                                    showToastOnMain("小番茄: 异常 - " + t.getClass().getSimpleName()
+                                            + ": " + truncate(t.getMessage(), 60));
                                 }
                             }
                         });
