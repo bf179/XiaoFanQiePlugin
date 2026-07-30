@@ -359,12 +359,13 @@ public class PluginEntry implements Runnable {
      */
     private void hookMember(Member member, SimpleHookCallback callback) throws Exception {
         // 加载 IHookBridge$IMemberHookCallback 接口
-        Class<?> callbackInterface = hostClassLoader.loadClass(
+        // 注意：QAuxiliary 的类在 moduleClassLoader 中，不在 hostClassLoader 中！
+        Class<?> callbackInterface = moduleClassLoader.loadClass(
                 "io.github.qauxv.loader.hookapi.IHookBridge$IMemberHookCallback");
 
         // 用动态代理创建 IMemberHookCallback 实例
         Object callbackProxy = Proxy.newProxyInstance(
-                hostClassLoader,
+                moduleClassLoader,
                 new Class<?>[]{callbackInterface},
                 new InvocationHandler() {
                     @Override
@@ -380,7 +381,7 @@ public class PluginEntry implements Runnable {
         );
 
         // 获取 PRIORITY_DEFAULT 常量
-        Class<?> iHookBridgeClass = hostClassLoader.loadClass(
+        Class<?> iHookBridgeClass = moduleClassLoader.loadClass(
                 "io.github.qauxv.loader.hookapi.IHookBridge");
         int priority = iHookBridgeClass.getField("PRIORITY_DEFAULT").getInt(null);
 
