@@ -430,21 +430,43 @@ public class PluginEntry implements Runnable {
             String md5 = getPicMd5(msg);
             if (md5 != null) {
                 String hostDataDir = hostApp.getFilesDir().getParentFile().getAbsolutePath();
-                String[] searchPaths = {
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatimg/" + md5,
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatraw/" + md5,
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chathd/" + md5,
-                        hostDataDir + "/Tencent/MobileQQ/diskcache/" + md5,
+                showToastOnMain("小番茄: 搜索图片 MD5=" + md5 + " dir=" + hostDataDir);
+
+                // 扩展搜索路径
+                String[] searchDirs = {
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatimg",
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatraw",
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chathd",
+                        hostDataDir + "/Tencent/MobileQQ/diskcache",
+                        hostDataDir + "/Tencent/MobileQQ/chatpic",
+                        hostDataDir + "/Tencent/MobileQQ",
                 };
-                for (String p : searchPaths) {
-                    File f = new File(p);
-                    if (f.exists() && f.length() > 0) return p;
-                    // 也尝试带扩展名
-                    for (String ext : new String[]{"", ".jpg", ".png", ".gif", ".webp", ".bmp"}) {
-                        File fe = new File(p + ext);
-                        if (fe.exists() && fe.length() > 0) return p + ext;
+
+                // 先精确匹配 MD5 开头的文件
+                for (String dir : searchDirs) {
+                    File d = new File(dir);
+                    if (!d.exists() || !d.isDirectory()) continue;
+                    File[] files = d.listFiles();
+                    if (files == null) continue;
+                    for (File f : files) {
+                        String name = f.getName();
+                        if (name.equalsIgnoreCase(md5) || name.startsWith(md5)) {
+                            if (f.length() > 0) {
+                                log("找到文件: " + f.getAbsolutePath() + " size=" + f.length());
+                                return f.getAbsolutePath();
+                            }
+                        }
                     }
                 }
+
+                // 递归搜索 chatpic 目录
+                File chatpicDir = new File(hostDataDir + "/Tencent/MobileQQ/chatpic");
+                if (chatpicDir.exists()) {
+                    String found = searchFileByName(chatpicDir, md5);
+                    if (found != null) return found;
+                }
+
+                showToastOnMain("小番茄: MD5=" + md5 + " 未在缓存中找到文件");
             }
         } catch (Exception e) {
             log("MD5 搜索方式失败: " + e.getMessage());
@@ -472,6 +494,28 @@ public class PluginEntry implements Runnable {
             }
         } catch (Exception e) {
             log("获取 PicElement MD5 失败: " + e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 递归搜索目录中文件名包含关键字的文件（限制深度和数量）。
+     */
+    private String searchFileByName(File dir, String keyword) {
+        if (dir == null || !dir.exists()) return null;
+        File[] files = dir.listFiles();
+        if (files == null) return null;
+        int count = 0;
+        for (File f : files) {
+            if (count++ > 200) break; // 限制搜索数量
+            String name = f.getName();
+            if (name.equalsIgnoreCase(keyword) || name.contains(keyword)) {
+                if (f.isFile() && f.length() > 0) return f.getAbsolutePath();
+            }
+            if (f.isDirectory()) {
+                String found = searchFileByName(f, keyword);
+                if (found != null) return found;
+            }
         }
         return null;
     }
