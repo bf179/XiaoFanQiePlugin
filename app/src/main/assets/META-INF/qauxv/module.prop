@@ -1,0 +1,4 @@
+entry=com.xiaofanqie.plugin.PluginEntry
+name=小番茄解混淆
+version=1.0
+description=长按QQ图片菜单中添加"小番茄解混淆"按钮，对加密图片进行解密保存

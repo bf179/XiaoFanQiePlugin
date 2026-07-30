@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.xiaofanqie.plugin">
+
+    <!-- 外部插件不需要任何组件声明，仅需基本 manifest 信息 -->
+    <application
+        android:allowBackup="false"
+        android:supportsRtl="true" />
+
+</manifest>
