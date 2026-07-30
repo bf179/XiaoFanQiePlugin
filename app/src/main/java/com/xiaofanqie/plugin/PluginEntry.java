@@ -130,6 +130,8 @@ public class PluginEntry implements Runnable {
             logError("无法找到 BaseContentComponent.getMsg() 方法", null);
             return;
         }
+        // 复制为 final 变量以在匿名内部类中使用
+        final Method fGetMsgMethod = getMsgMethod;
 
         // Step 3: 找到抽象的 getMenuList 方法名（返回 List，无参数，abstract）
         String listMethodName = null;
@@ -185,7 +187,7 @@ public class PluginEntry implements Runnable {
                                     List menuList = (List) callMethod(param, "getResult");
                                     if (menuList == null) return;
 
-                                    Object msg = getMsgMethod.invoke(component);
+                                    Object msg = fGetMsgMethod.invoke(component);
                                     if (msg == null) return;
 
                                     Object menuItem = createCustomMenuItem(msg);
