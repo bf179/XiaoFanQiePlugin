@@ -69,11 +69,20 @@ public class PluginEntry implements Runnable {
     public void run() {
         try {
             log("小番茄解混淆插件启动中...");
+
+            // Step 1: 连接 QAuxiliary API
             initQauxvAccess();
+            showToastDelayed("小番茄插件: QAuxiliary API 已连接", 2000);
+
+            // Step 2: 安装菜单 Hook
             hookMenuSystem();
+            showToastDelayed("小番茄插件: 菜单Hook已安装，长按图片试试", 3000);
+
             log("小番茄解混淆插件启动完成");
         } catch (Throwable e) {
             logError("插件初始化失败", e);
+            showToastDelayed("小番茄插件初始化失败: " + e.getClass().getSimpleName()
+                    + " - " + e.getMessage(), 2000);
         }
     }
 
@@ -441,6 +450,22 @@ public class PluginEntry implements Runnable {
             });
         } catch (Exception e) {
             log("Toast: " + text);
+        }
+    }
+
+    /**
+     * 延迟在主线程显示 Toast（用于启动阶段的诊断信息）。
+     */
+    private void showToastDelayed(final String text, long delayMs) {
+        try {
+            new Handler(hostApp.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(hostApp, text, Toast.LENGTH_LONG).show();
+                }
+            }, delayMs);
+        } catch (Exception e) {
+            log("ToastDelayed: " + text);
         }
     }
 
