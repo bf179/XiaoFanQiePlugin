@@ -383,17 +383,97 @@ public class PluginEntry implements Runnable {
     }
 
     /**
-     * 通过 QQ 的 AIOMsgItemApiImpl.getLocalPath() 获取图片本地路径。
+     * 通过多种方式获取图片本地路径。
+     * 不同 QQ 版本的内部 API 类名可能不同，需要多种策略。
      */
-    private String getLocalImagePath(Object msg) throws Exception {
-        Class<?> apiImplClass = hostClassLoader.loadClass(
-                "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
-        Class<?> aioMsgItemClass = hostClassLoader.loadClass(
-                "com.tencent.mobileqq.aio.msg.AIOMsgItem");
+    private String getLocalImagePath(Object msg) {
+        // 策略1: AIOMsgItemApiImpl（标准 NT QQ API）
+        try {
+            Class<?> apiImplClass = hostClassLoader.loadClass(
+                    "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
+            Class<?> aioMsgItemClass = hostClassLoader.loadClass(
+                    "com.tencent.mobileqq.aio.msg.AIOMsgItem");
+            Object apiImpl = apiImplClass.newInstance();
+            Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
+            String path = (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
+            if (path != null && !path.isEmpty() && new File(path).exists()) {
+                return path;
+            }
+        } catch (ClassNotFoundException ignored) {
+            log("AIOMsgItemApiImpl 不存在，尝试其他方式");
+        } catch (Exception e) {
+            log("AIOMsgItemApiImpl 调用失败: " + e.getMessage());
+        }
 
-        Object apiImpl = apiImplClass.newInstance();
-        Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
-        return (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
+        // 策略2: 通过 QAuxiliary 的 Initiator 查找（支持混淆类名）
+        try {
+            Class<?> initiatorClass = moduleClassLoader.loadClass("io.github.qauxv.util.Initiator");
+            Method loadMethod = initiatorClass.getMethod("load", String.class);
+            Class<?> apiImplClass = (Class<?>) loadMethod.invoke(null,
+                    "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
+            if (apiImplClass != null) {
+                Class<?> aioMsgItemClass = hostClassLoader.loadClass(
+                        "com.tencent.mobileqq.aio.msg.AIOMsgItem");
+                Object apiImpl = apiImplClass.newInstance();
+                Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
+                String path = (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
+                if (path != null && !path.isEmpty() && new File(path).exists()) {
+                    return path;
+                }
+            }
+        } catch (Exception e) {
+            log("Initiator 方式失败: " + e.getMessage());
+        }
+
+        // 策略3: 从 PicElement 获取 MD5，搜索 QQ 缓存目录
+        try {
+            String md5 = getPicMd5(msg);
+            if (md5 != null) {
+                String hostDataDir = hostApp.getFilesDir().getParentFile().getAbsolutePath();
+                String[] searchPaths = {
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatimg/" + md5,
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatraw/" + md5,
+                        hostDataDir + "/Tencent/MobileQQ/chatpic/chathd/" + md5,
+                        hostDataDir + "/Tencent/MobileQQ/diskcache/" + md5,
+                };
+                for (String p : searchPaths) {
+                    File f = new File(p);
+                    if (f.exists() && f.length() > 0) return p;
+                    // 也尝试带扩展名
+                    for (String ext : new String[]{"", ".jpg", ".png", ".gif", ".webp", ".bmp"}) {
+                        File fe = new File(p + ext);
+                        if (fe.exists() && fe.length() > 0) return p + ext;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log("MD5 搜索方式失败: " + e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 从 AIOMsgItem 获取 PicElement 的 MD5。
+     */
+    private String getPicMd5(Object msg) {
+        try {
+            Class<?> picElementClass = hostClassLoader.loadClass(
+                    "com.tencent.qqnt.kernel.nativeinterface.PicElement");
+            for (Method m : msg.getClass().getDeclaredMethods()) {
+                if (m.getReturnType() == picElementClass && m.getParameterTypes().length == 0) {
+                    m.setAccessible(true);
+                    Object element = m.invoke(msg);
+                    if (element != null) {
+                        Method getMd5 = picElementClass.getMethod("getMd5HexStr");
+                        return (String) getMd5.invoke(element);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log("获取 PicElement MD5 失败: " + e.getMessage());
+        }
+        return null;
     }
 
     // ==================== Hook 基础设施 ====================
