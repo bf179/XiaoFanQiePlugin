@@ -25,9 +25,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    // 禁用压缩，让 module.prop 可以直接被读取
-    androidResources {
-        noCompress += listOf("prop")
+    // 确保 module.prop 被打包到 APK 根目录 META-INF/qauxv/ 下
+    // src/main/resources/ 下的文件会直接映射到 APK 根路径
+    sourceSets {
+        getByName("main") {
+            resources.srcDirs("src/main/resources")
+        }
     }
 }
 
