@@ -220,7 +220,9 @@ public class PluginEntry implements Runnable {
                                     }
                                     List menuList = (List) result;
 
-                                    Object msg = fGetMsgMethod.invoke(component);
+                                    // 注意：必须用当前回调的 getThisObject()，不能用构造函数时捕获的 component！
+                                    Object currentComponent = callMethod(param, "getThisObject");
+                                    Object msg = fGetMsgMethod.invoke(currentComponent);
                                     if (msg == null) {
                                         showToastOnMain("小番茄: getMsg 返回 null!");
                                         return;
