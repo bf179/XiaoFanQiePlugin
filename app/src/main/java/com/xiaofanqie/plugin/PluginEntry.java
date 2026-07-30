@@ -435,17 +435,20 @@ public class PluginEntry implements Runnable {
     }
 
     /**
-     * 安全调用对象方法，遍历类层次结构（参考 XfqDeobf2）。
+     * 安全调用对象方法，遍历类层次结构，按名称和参数个数匹配（参考 XfqDeobf2）。
+     * 不检查返回类型，因为 getLocalPath() 可能返回 Object 而非精确的 String。
      */
     private String callMethodSafely(Object obj, String methodName) {
         Class<?> clazz = obj.getClass();
         while (clazz != null && clazz != Object.class) {
             for (Method m : clazz.getDeclaredMethods()) {
-                if (m.getName().equals(methodName) && m.getParameterTypes().length == 0
-                        && m.getReturnType() == String.class) {
+                if (m.getName().equals(methodName) && m.getParameterTypes().length == 0) {
                     try {
                         m.setAccessible(true);
-                        return (String) m.invoke(obj);
+                        Object result = m.invoke(obj);
+                        if (result instanceof String) {
+                            return (String) result;
+                        }
                     } catch (Exception ignored) {
                     }
                 }
