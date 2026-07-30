@@ -159,7 +159,7 @@ public class PluginEntry implements Runnable {
                 @Override
                 public void afterHookedMember(Object param) throws Throwable {
                     try {
-                        Object component = callMethod(param, "getThisObject");
+                        final Object component = callMethod(param, "getThisObject");
                         if (component == null) return;
 
                         Class<?> componentClass = component.getClass();

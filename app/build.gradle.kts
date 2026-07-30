@@ -26,8 +26,8 @@ android {
     }
 
     // 禁用压缩，让 module.prop 可以直接被读取
-    aaptOptions {
-        noCompress("prop")
+    androidResources {
+        noCompress += listOf("prop")
     }
 }
 
