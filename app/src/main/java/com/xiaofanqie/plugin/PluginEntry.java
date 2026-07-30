@@ -373,48 +373,64 @@ public class PluginEntry implements Runnable {
 
     /**
      * 通过多种方式获取图片本地路径。
-     * 参考 XfqDeobf2: 直接反射组件字段，不依赖外部 API 类。
+     * 参考 XfqDeobf2: 先从 component 获取 aiomsg/msg 字段，调 getLocalPath()。
      */
-    private String getLocalImagePath(Object msg) {
-        // 策略1: 调用 AIOMsgItem.getLocalPath() （XfqDeobf2 方式）
+    private String getLocalImagePath(Object obj) {
+        // 策略1: 获取 aiomsg 或 msg 字段，调用 getLocalPath()（XfqDeobf2 核心方式）
         try {
-            String path = callMethodSafely(msg, "getLocalPath");
-            if (path != null && !path.isEmpty() && new File(path).exists()) {
-                log("策略1成功: getLocalPath() = " + path);
-                return path;
+            Object aiomsg = getFieldValue(obj, "aiomsg");
+            if (aiomsg == null) aiomsg = getFieldValue(obj, "msg");
+            if (aiomsg != null) {
+                String path = callMethodSafely(aiomsg, "getLocalPath");
+                if (path != null && !path.isEmpty() && new File(path).exists()) {
+                    log("策略1成功: component.msg.getLocalPath() = " + path);
+                    return path;
+                }
             }
         } catch (Exception e) {
             log("策略1失败: " + e.getMessage());
         }
 
-        // 策略2: 遍历 msg 所有 String 字段，找有效的图片文件路径
+        // 策略2: 直接调 obj 自身的 getLocalPath()
         try {
-            String path = findImagePathInFields(msg);
-            if (path != null) {
-                log("策略2成功: 字段扫描找到 = " + path);
+            String path = callMethodSafely(obj, "getLocalPath");
+            if (path != null && !path.isEmpty() && new File(path).exists()) {
+                log("策略2成功: getLocalPath() = " + path);
                 return path;
             }
         } catch (Exception e) {
             log("策略2失败: " + e.getMessage());
         }
 
-        // 策略3: AIOMsgItemApiImpl（兼容旧版 QQ）
+        // 策略3: 遍历 obj 所有 String 字段，找有效的图片文件路径
         try {
-            Class<?> apiImplClass = hostClassLoader.loadClass(
-                    "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
-            Class<?> aioMsgItemClass = hostClassLoader.loadClass(
-                    "com.tencent.mobileqq.aio.msg.AIOMsgItem");
-            Object apiImpl = apiImplClass.newInstance();
-            Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
-            String path = (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
-            if (path != null && !path.isEmpty() && new File(path).exists()) {
-                log("策略3成功: AIOMsgItemApiImpl = " + path);
+            String path = findImagePathInFields(obj);
+            if (path != null) {
+                log("策略3成功: 字段扫描找到 = " + path);
                 return path;
             }
         } catch (Exception e) {
             log("策略3失败: " + e.getMessage());
         }
 
+        return null;
+    }
+
+    /**
+     * 从对象及其父类中获取指定字段（参考 XfqDeobf2 getFieldValue）。
+     */
+    private Object getFieldValue(Object obj, String fieldName) {
+        Class<?> clazz = obj.getClass();
+        while (clazz != null && clazz != Object.class) {
+            try {
+                java.lang.reflect.Field f = clazz.getDeclaredField(fieldName);
+                f.setAccessible(true);
+                return f.get(obj);
+            } catch (NoSuchFieldException ignored) {
+            } catch (Exception ignored) {
+            }
+            clazz = clazz.getSuperclass();
+        }
         return null;
     }
 
