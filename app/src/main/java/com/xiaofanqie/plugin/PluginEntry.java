@@ -53,6 +53,11 @@ public class PluginEntry implements Runnable {
     // 记录已 Hook 的组件类名，避免重复 Hook
     private final Set<String> hookedComponentClasses = new HashSet<>();
 
+    // 诊断：记录构造函数被调用过
+    private volatile boolean constructorHookFired = false;
+    // 诊断：记录检测到的组件类型
+    private final Set<String> detectedComponentTypes = new HashSet<>();
+
     /**
      * QAuxiliary 外部插件系统要求的构造函数。
      *
@@ -176,12 +181,19 @@ public class PluginEntry implements Runnable {
                         Class<?> componentClass = component.getClass();
                         String className = componentClass.getName();
 
+                        if (!constructorHookFired) {
+                            constructorHookFired = true;
+                            showToastDelayed("小番茄: 检测到组件 " + componentClass.getSimpleName(), 500);
+                        }
+                        detectedComponentTypes.add(componentClass.getSimpleName());
+
                         if (hookedComponentClasses.contains(className)) return;
                         hookedComponentClasses.add(className);
 
                         // 只处理图片消息组件
                         if (!className.equals(picComponentName)) return;
 
+                        showToastOnMain("小番茄: 检测到图片组件!");
                         log("Hook 图片菜单组件: " + className);
 
                         // Step 5: Hook 该组件具体实现的 getMenuList 方法
@@ -202,15 +214,21 @@ public class PluginEntry implements Runnable {
                                     Object menuItem = createCustomMenuItem(msg);
                                     if (menuItem != null) {
                                         menuList.add(menuItem);
+                                        showToastOnMain("小番茄: 菜单项已注入!");
                                         log("已注入「小番茄解混淆」菜单项");
+                                    } else {
+                                        showToastOnMain("小番茄: createCustomMenuItem 返回 null");
                                     }
                                 } catch (Throwable t) {
                                     logError("注入菜单项失败", t);
+                                    showToastOnMain("小番茄: 注入失败 - " + t.getClass().getSimpleName()
+                                            + ": " + truncate(t.getMessage(), 50));
                                 }
                             }
                         });
                     } catch (Throwable t) {
                         logError("构造函数 Hook 回调异常", t);
+                        showToastOnMain("小番茄: Hook异常 - " + t.getClass().getSimpleName());
                     }
                 }
             });
@@ -477,6 +495,11 @@ public class PluginEntry implements Runnable {
 
     private void logError(String msg, Throwable e) {
         android.util.Log.e("XiaoFanQie", msg, e);
+    }
+
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return "null";
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 
     // ==================== 内部接口 ====================
