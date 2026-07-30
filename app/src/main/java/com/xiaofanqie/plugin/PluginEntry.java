@@ -267,15 +267,17 @@ public class PluginEntry implements Runnable {
         // 加载 QAuxiliary 的 CustomMenu
         Class<?> customMenuClass = moduleClassLoader.loadClass("io.github.qauxv.util.CustomMenu");
 
-        // 加载 Kotlin Function0 接口（Kotlin lambda 编译后实现此接口）
-        Class<?> function0Class = hostClassLoader.loadClass("kotlin.jvm.functions.Function0");
-        Class<?> unitClass = hostClassLoader.loadClass("kotlin.Unit");
+        // 关键：必须从 moduleClassLoader 加载 Kotlin 类！
+        // CustomMenu.createItemNt 签名中的 Function0 是通过 moduleClassLoader 解析的，
+        // 如果从 hostClassLoader 加载会得到不同的 Class 对象，导致 NoSuchMethodException
+        Class<?> function0Class = moduleClassLoader.loadClass("kotlin.jvm.functions.Function0");
+        Class<?> unitClass = moduleClassLoader.loadClass("kotlin.Unit");
         final Object unitInstance = unitClass.getField("INSTANCE").get(null);
 
-        // 用动态代理创建 Function0<Unit> 实现，等价于 Kotlin 的 { performDeobfuscation(msg); Unit }
+        // 用动态代理创建 Function0<Unit> 实现
         final Object finalMsg = msg;
         Object clickProxy = Proxy.newProxyInstance(
-                hostClassLoader,
+                moduleClassLoader,
                 new Class<?>[]{function0Class},
                 new InvocationHandler() {
                     @Override
