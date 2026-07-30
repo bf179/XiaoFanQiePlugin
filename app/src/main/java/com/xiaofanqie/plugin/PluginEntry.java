@@ -229,7 +229,9 @@ public class PluginEntry implements Runnable {
                                     }
 
                                     showToastOnMain("小番茄: 创建菜单项...");
-                                    Object menuItem = createCustomMenuItem(msg);
+                                    // 把组件实例也传进去，用于字段扫描获取图片路径
+                                    final Object capturedComponent = currentComponent;
+                                    Object menuItem = createCustomMenuItem2(msg, capturedComponent);
                                     if (menuItem != null) {
                                         menuList.add(menuItem);
                                         showToastOnMain("小番茄: 已注入! size=" + menuList.size());
@@ -255,46 +257,30 @@ public class PluginEntry implements Runnable {
     }
 
     /**
-     * 通过反射调用 QAuxiliary 的 CustomMenu.createItemNt() 方法创建自定义菜单项。
-     * <p>
-     * createItemNt 使用 ByteBuddy 动态生成 AbstractQQCustomMenuItem 的子类，
-     * 并通过 InMemoryDexClassLoader 加载。
-     * <p>
-     * 由于外部插件不能直接依赖 QAuxiliary 的类，这里通过反射调用，
-     * 并用动态代理模拟 Kotlin lambda 参数。
+     * 创建自定义菜单项（同时传入 msg 和 component 用于路径解析）。
      */
-    private Object createCustomMenuItem(Object msg) throws Exception {
-        // 加载 QAuxiliary 的 CustomMenu
+    private Object createCustomMenuItem2(final Object msg, final Object component) throws Exception {
         Class<?> customMenuClass = moduleClassLoader.loadClass("io.github.qauxv.util.CustomMenu");
 
-        // 关键：必须从 moduleClassLoader 加载 Kotlin 类！
-        // CustomMenu.createItemNt 签名中的 Function0 是通过 moduleClassLoader 解析的，
-        // 如果从 hostClassLoader 加载会得到不同的 Class 对象，导致 NoSuchMethodException
         Class<?> function0Class = moduleClassLoader.loadClass("kotlin.jvm.functions.Function0");
         Class<?> unitClass = moduleClassLoader.loadClass("kotlin.Unit");
         final Object unitInstance = unitClass.getField("INSTANCE").get(null);
 
-        // 用动态代理创建 Function0<Unit> 实现
-        final Object finalMsg = msg;
         Object clickProxy = Proxy.newProxyInstance(
                 moduleClassLoader,
                 new Class<?>[]{function0Class},
                 new InvocationHandler() {
                     @Override
                     public Object invoke(Object proxy, Method method, Object[] args) {
-                        performDeobfuscation(finalMsg);
+                        performDeobfuscation(msg, component);
                         return unitInstance;
                     }
                 }
         );
 
-        // 菜单项 ID（自定义范围，避免与 QQ 内置 ID 冲突）
         int menuId = 0x7F0A0101;
-
-        // 调用 CustomMenu.createItemNt(msg, "小番茄解混淆", menuId, clickCallback)
         Method createItemNt = customClassGetMethod(customMenuClass, "createItemNt",
                 Object.class, String.class, int.class, function0Class);
-
         return createItemNt.invoke(null, msg, "小番茄解混淆", menuId, clickProxy);
     }
 
@@ -313,10 +299,13 @@ public class PluginEntry implements Runnable {
      *
      * @param msg QQ NT 的 AIOMsgItem 对象
      */
-    private void performDeobfuscation(Object msg) {
+    private void performDeobfuscation(Object msg, Object component) {
         try {
-            // Step 1: 获取图片本地文件路径
+            // Step 1: 获取图片本地文件路径（同时从 msg 和 component 扫描）
             String filePath = getLocalImagePath(msg);
+            if (filePath == null || filePath.isEmpty()) {
+                filePath = getLocalImagePath(component);  // XfqDeobf2 方式：扫描组件
+            }
             if (filePath == null || filePath.isEmpty()) {
                 showToastOnMain("无法获取图片路径，请先点击查看原图");
                 return;
