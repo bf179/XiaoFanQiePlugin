@@ -53,6 +53,11 @@ public class PluginEntry implements Runnable {
     // 记录已 Hook 的组件类名，避免重复 Hook
     private final Set<String> hookedComponentClasses = new HashSet<>();
 
+    // AIOMsgItemApiImpl 缓存：FanqieDeobfuscate/XfqDeobf 使用的官方路径获取方式
+    private Object aiomsgApiImpl;
+    private Method aiomsgApiGetLocalPath;
+    private Class<?> aioMsgItemClass;
+
     // 诊断：记录构造函数被调用过
     private volatile boolean constructorHookFired = false;
     // 诊断：记录检测到的组件类型
@@ -77,6 +82,7 @@ public class PluginEntry implements Runnable {
 
             // Step 1: 连接 QAuxiliary API
             initQauxvAccess();
+            initAioMsgApi();  // 初始化 AIOMsgItemApiImpl（FanqieDeobfuscate 方式）
             showToastDelayed("小番茄插件: QAuxiliary API 已连接", 2000);
 
             // Step 2: 安装菜单 Hook
@@ -108,6 +114,27 @@ public class PluginEntry implements Runnable {
         hookBridge = chainLoaderAgent.getMethod("getHookBridge").invoke(null);
 
         log("QAuxiliary 环境初始化完成");
+    }
+
+    /**
+     * 初始化 AIOMsgItemApiImpl——FanqieDeobfuscate/XfqDeobf 使用的官方路径获取方式。
+     * <p>
+     * 这是 QQ NT 内部的消息 API 服务类，通过 hostClassLoader 可加载。
+     * 调用 getLocalPath(AIOMsgItem) 返回图片本地文件路径。
+     */
+    private void initAioMsgApi() {
+        try {
+            aioMsgItemClass = hostClassLoader.loadClass("com.tencent.mobileqq.aio.msg.AIOMsgItem");
+            Class<?> apiImplClass = hostClassLoader.loadClass(
+                    "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
+            aiomsgApiImpl = apiImplClass.newInstance();
+            aiomsgApiGetLocalPath = apiImplClass.getMethod("getLocalPath", aioMsgItemClass);
+            log("AIOMsgItemApiImpl 初始化成功");
+        } catch (Throwable e) {
+            logError("AIOMsgItemApiImpl 初始化失败（QQ 版本可能不兼容）", e);
+            aiomsgApiImpl = null;
+            aiomsgApiGetLocalPath = null;
+        }
     }
 
     // ==================== 菜单 Hook 核心逻辑 ====================
@@ -373,44 +400,79 @@ public class PluginEntry implements Runnable {
 
     /**
      * 通过多种方式获取图片本地路径。
-     * 参考 XfqDeobf2: 先从 component 获取 aiomsg/msg 字段，调 getLocalPath()。
+     * <p>
+     * 策略0（FanqieDeobfuscate/XfqDeobf 官方方式）：AIOMsgItemApiImpl.getLocalPath(AIOMsgItem)
+     * 策略1（XfqDeobf2 方式）：component.aiomsg.getLocalPath() 或 component.msg.getLocalPath()
+     * 策略2：obj 自身的 getLocalPath()
+     * 策略3：遍历所有 String 字段
      */
     private String getLocalImagePath(Object obj) {
-        // 策略1: 获取 aiomsg 或 msg 字段，调用 getLocalPath()（XfqDeobf2 核心方式）
+        // 策略0: AIOMsgItemApiImpl.getLocalPath(msg) —— FanqieDeobfuscate/XfqDeobf 官方方式
+        if (aiomsgApiImpl != null && aiomsgApiGetLocalPath != null && aioMsgItemClass != null) {
+            if (aioMsgItemClass.isInstance(obj)) {
+                try {
+                    String path = (String) aiomsgApiGetLocalPath.invoke(aiomsgApiImpl, obj);
+                    if (path != null && !path.isEmpty()) {
+                        boolean exists = new File(path).exists();
+                        showToastOnMain("A0(API): " + truncate(path, 35) + " ex=" + exists);
+                        if (exists) return path;
+                        showToastOnMain("A0: 路径存在但文件不存在: " + truncate(path, 50));
+                    } else {
+                        showToastOnMain("A0: getLocalPath 返回空");
+                    }
+                } catch (Exception e) {
+                    showToastOnMain("A0异常: " + e.getClass().getSimpleName() + " " + e.getMessage());
+                }
+            }
+        }
+
+        final String objType = obj.getClass().getSimpleName();
+
+        // 策略1: 获取 aiomsg 或 msg 字段，调用 getLocalPath()
         try {
             Object aiomsg = getFieldValue(obj, "aiomsg");
             if (aiomsg == null) aiomsg = getFieldValue(obj, "msg");
             if (aiomsg != null) {
+                showToastOnMain("D1: 找到字段, 调 getLocalPath...");
                 String path = callMethodSafely(aiomsg, "getLocalPath");
-                if (path != null && !path.isEmpty() && new File(path).exists()) {
-                    log("策略1成功: component.msg.getLocalPath() = " + path);
-                    return path;
+                if (path != null && !path.isEmpty()) {
+                    boolean exists = new File(path).exists();
+                    showToastOnMain("D1: path=" + truncate(path, 40) + " exists=" + exists);
+                    if (exists) return path;
+                } else {
+                    showToastOnMain("D1: " + objType + ".msg.getLocalPath()=null");
                 }
+            } else {
+                showToastOnMain("D1: " + objType + " 无 aiomsg/msg 字段");
             }
         } catch (Exception e) {
-            log("策略1失败: " + e.getMessage());
+            showToastOnMain("D1异常: " + e.getClass().getSimpleName());
         }
 
         // 策略2: 直接调 obj 自身的 getLocalPath()
         try {
             String path = callMethodSafely(obj, "getLocalPath");
-            if (path != null && !path.isEmpty() && new File(path).exists()) {
-                log("策略2成功: getLocalPath() = " + path);
-                return path;
+            if (path != null && !path.isEmpty()) {
+                boolean exists = new File(path).exists();
+                showToastOnMain("D2: " + objType + ".getLocalPath()=" + truncate(path, 40) + " exists=" + exists);
+                if (exists) return path;
+            } else {
+                showToastOnMain("D2: " + objType + " 无 getLocalPath()");
             }
         } catch (Exception e) {
-            log("策略2失败: " + e.getMessage());
+            showToastOnMain("D2异常: " + e.getClass().getSimpleName());
         }
 
-        // 策略3: 遍历 obj 所有 String 字段，找有效的图片文件路径
+        // 策略3: 遍历所有 String 字段
         try {
             String path = findImagePathInFields(obj);
             if (path != null) {
-                log("策略3成功: 字段扫描找到 = " + path);
+                showToastOnMain("D3: 字段扫描找到=" + truncate(path, 40));
                 return path;
             }
+            showToastOnMain("D3: " + objType + " 字段扫描未找到");
         } catch (Exception e) {
-            log("策略3失败: " + e.getMessage());
+            showToastOnMain("D3异常: " + e.getClass().getSimpleName());
         }
 
         return null;
