@@ -162,6 +162,7 @@ public class PluginEntry implements Runnable {
             return;
         }
         log("菜单列表方法名: " + listMethodName);
+        showToastDelayed("小番茄: 找到菜单方法 " + listMethodName, 1000);
 
         final String finalListMethodName = listMethodName;
         final String picComponentName = "com.tencent.mobileqq.aio.msglist.holder.component.pic.AIOPicContentComponent";
@@ -193,14 +194,21 @@ public class PluginEntry implements Runnable {
                         // 只处理图片消息组件
                         if (!className.equals(picComponentName)) return;
 
-                        showToastOnMain("小番茄: 检测到图片组件!");
+                        showToastOnMain("小番茄: 检测到图片组件! 类=" + componentClass.getSimpleName());
                         log("Hook 图片菜单组件: " + className);
 
                         // Step 5: Hook 该组件具体实现的 getMenuList 方法
                         Method listMethod = componentClass.getMethod(finalListMethodName);
                         listMethod.setAccessible(true);
+                        log("  -> 具体方法: " + listMethod.getDeclaringClass().getSimpleName() + "." + listMethod.getName());
 
                         hookMember(listMethod, new SimpleHookCallback() {
+                            @Override
+                            public void beforeHookedMember(Object param) throws Throwable {
+                                // 诊断：确认回调触发
+                                showToastOnMain("小番茄: getMenuList 被调用! cls=" + componentClass.getSimpleName());
+                            }
+
                             @Override
                             @SuppressWarnings("unchecked")
                             public void afterHookedMember(Object param) throws Throwable {
