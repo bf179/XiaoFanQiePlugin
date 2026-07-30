@@ -384,10 +384,32 @@ public class PluginEntry implements Runnable {
 
     /**
      * 通过多种方式获取图片本地路径。
-     * 不同 QQ 版本的内部 API 类名可能不同，需要多种策略。
+     * 参考 XfqDeobf2: 直接反射组件字段，不依赖外部 API 类。
      */
     private String getLocalImagePath(Object msg) {
-        // 策略1: AIOMsgItemApiImpl（标准 NT QQ API）
+        // 策略1: 调用 AIOMsgItem.getLocalPath() （XfqDeobf2 方式）
+        try {
+            String path = callMethodSafely(msg, "getLocalPath");
+            if (path != null && !path.isEmpty() && new File(path).exists()) {
+                log("策略1成功: getLocalPath() = " + path);
+                return path;
+            }
+        } catch (Exception e) {
+            log("策略1失败: " + e.getMessage());
+        }
+
+        // 策略2: 遍历 msg 所有 String 字段，找有效的图片文件路径
+        try {
+            String path = findImagePathInFields(msg);
+            if (path != null) {
+                log("策略2成功: 字段扫描找到 = " + path);
+                return path;
+            }
+        } catch (Exception e) {
+            log("策略2失败: " + e.getMessage());
+        }
+
+        // 策略3: AIOMsgItemApiImpl（兼容旧版 QQ）
         try {
             Class<?> apiImplClass = hostClassLoader.loadClass(
                     "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
@@ -397,125 +419,63 @@ public class PluginEntry implements Runnable {
             Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
             String path = (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
             if (path != null && !path.isEmpty() && new File(path).exists()) {
+                log("策略3成功: AIOMsgItemApiImpl = " + path);
                 return path;
             }
-        } catch (ClassNotFoundException ignored) {
-            log("AIOMsgItemApiImpl 不存在，尝试其他方式");
         } catch (Exception e) {
-            log("AIOMsgItemApiImpl 调用失败: " + e.getMessage());
+            log("策略3失败: " + e.getMessage());
         }
 
-        // 策略2: 通过 QAuxiliary 的 Initiator 查找（支持混淆类名）
-        try {
-            Class<?> initiatorClass = moduleClassLoader.loadClass("io.github.qauxv.util.Initiator");
-            Method loadMethod = initiatorClass.getMethod("load", String.class);
-            Class<?> apiImplClass = (Class<?>) loadMethod.invoke(null,
-                    "com.tencent.qqnt.aio.msg.api.impl.AIOMsgItemApiImpl");
-            if (apiImplClass != null) {
-                Class<?> aioMsgItemClass = hostClassLoader.loadClass(
-                        "com.tencent.mobileqq.aio.msg.AIOMsgItem");
-                Object apiImpl = apiImplClass.newInstance();
-                Method getLocalPath = apiImplClass.getMethod("getLocalPath", Object.class, Class.class);
-                String path = (String) getLocalPath.invoke(apiImpl, msg, aioMsgItemClass);
-                if (path != null && !path.isEmpty() && new File(path).exists()) {
-                    return path;
+        return null;
+    }
+
+    /**
+     * 安全调用对象方法，遍历类层次结构（参考 XfqDeobf2）。
+     */
+    private String callMethodSafely(Object obj, String methodName) {
+        Class<?> clazz = obj.getClass();
+        while (clazz != null && clazz != Object.class) {
+            for (Method m : clazz.getDeclaredMethods()) {
+                if (m.getName().equals(methodName) && m.getParameterTypes().length == 0
+                        && m.getReturnType() == String.class) {
+                    try {
+                        m.setAccessible(true);
+                        return (String) m.invoke(obj);
+                    } catch (Exception ignored) {
+                    }
                 }
             }
-        } catch (Exception e) {
-            log("Initiator 方式失败: " + e.getMessage());
+            clazz = clazz.getSuperclass();
         }
+        return null;
+    }
 
-        // 策略3: 从 PicElement 获取 MD5，搜索 QQ 缓存目录
-        try {
-            String md5 = getPicMd5(msg);
-            if (md5 != null) {
-                String hostDataDir = hostApp.getFilesDir().getParentFile().getAbsolutePath();
-                showToastOnMain("小番茄: 搜索图片 MD5=" + md5 + " dir=" + hostDataDir);
-
-                // 扩展搜索路径
-                String[] searchDirs = {
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatimg",
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chatraw",
-                        hostDataDir + "/Tencent/MobileQQ/chatpic/chathd",
-                        hostDataDir + "/Tencent/MobileQQ/diskcache",
-                        hostDataDir + "/Tencent/MobileQQ/chatpic",
-                        hostDataDir + "/Tencent/MobileQQ",
-                };
-
-                // 先精确匹配 MD5 开头的文件
-                for (String dir : searchDirs) {
-                    File d = new File(dir);
-                    if (!d.exists() || !d.isDirectory()) continue;
-                    File[] files = d.listFiles();
-                    if (files == null) continue;
-                    for (File f : files) {
-                        String name = f.getName();
-                        if (name.equalsIgnoreCase(md5) || name.startsWith(md5)) {
-                            if (f.length() > 0) {
-                                log("找到文件: " + f.getAbsolutePath() + " size=" + f.length());
-                                return f.getAbsolutePath();
+    /**
+     * 遍历对象所有字段，找到指向真实图片文件的 String 字段（参考 XfqDeobf2 回退策略）。
+     */
+    private String findImagePathInFields(Object obj) {
+        Class<?> clazz = obj.getClass();
+        while (clazz != null && clazz != Object.class) {
+            for (java.lang.reflect.Field field : clazz.getDeclaredFields()) {
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(obj);
+                    if (value instanceof String) {
+                        String str = (String) value;
+                        File f = new File(str);
+                        if (f.exists() && f.isFile() && f.length() > 0) {
+                            String name = f.getName().toLowerCase();
+                            if (name.endsWith(".jpg") || name.endsWith(".jpeg")
+                                    || name.endsWith(".png") || name.endsWith(".bmp")
+                                    || name.endsWith(".gif") || name.endsWith(".webp")) {
+                                return str;
                             }
                         }
                     }
-                }
-
-                // 递归搜索 chatpic 目录
-                File chatpicDir = new File(hostDataDir + "/Tencent/MobileQQ/chatpic");
-                if (chatpicDir.exists()) {
-                    String found = searchFileByName(chatpicDir, md5);
-                    if (found != null) return found;
-                }
-
-                showToastOnMain("小番茄: MD5=" + md5 + " 未在缓存中找到文件");
-            }
-        } catch (Exception e) {
-            log("MD5 搜索方式失败: " + e.getMessage());
-        }
-
-        return null;
-    }
-
-    /**
-     * 从 AIOMsgItem 获取 PicElement 的 MD5。
-     */
-    private String getPicMd5(Object msg) {
-        try {
-            Class<?> picElementClass = hostClassLoader.loadClass(
-                    "com.tencent.qqnt.kernel.nativeinterface.PicElement");
-            for (Method m : msg.getClass().getDeclaredMethods()) {
-                if (m.getReturnType() == picElementClass && m.getParameterTypes().length == 0) {
-                    m.setAccessible(true);
-                    Object element = m.invoke(msg);
-                    if (element != null) {
-                        Method getMd5 = picElementClass.getMethod("getMd5HexStr");
-                        return (String) getMd5.invoke(element);
-                    }
+                } catch (Exception ignored) {
                 }
             }
-        } catch (Exception e) {
-            log("获取 PicElement MD5 失败: " + e.getMessage());
-        }
-        return null;
-    }
-
-    /**
-     * 递归搜索目录中文件名包含关键字的文件（限制深度和数量）。
-     */
-    private String searchFileByName(File dir, String keyword) {
-        if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles();
-        if (files == null) return null;
-        int count = 0;
-        for (File f : files) {
-            if (count++ > 200) break; // 限制搜索数量
-            String name = f.getName();
-            if (name.equalsIgnoreCase(keyword) || name.contains(keyword)) {
-                if (f.isFile() && f.length() > 0) return f.getAbsolutePath();
-            }
-            if (f.isDirectory()) {
-                String found = searchFileByName(f, keyword);
-                if (found != null) return found;
-            }
+            clazz = clazz.getSuperclass();
         }
         return null;
     }
